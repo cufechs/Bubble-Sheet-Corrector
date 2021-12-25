@@ -12,6 +12,10 @@ from matplotlib import cm
 import math
 import cv2
 
+from imutils.perspective import four_point_transform
+from imutils import contours
+import imutils
+
 
 # Convolution:
 from scipy.signal import convolve2d
@@ -57,3 +61,42 @@ def showHist(img):
     imgHist = histogram(img, nbins=256)
     
     bar(imgHist[1].astype(np.uint8), imgHist[0], width=0.8, align='center')
+
+
+def perspective_correction(image):
+
+    # load the image, convert it to grayscale, blur it
+    # slightly, then find edges
+    gray = rgb2gray(image)*256
+    gray = np.uint8(gray)
+
+    #blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    #edged = cv2.Canny(blurred, 75, 200)
+    
+    edged = np.uint8(canny(gray,sigma=4))
+    
+
+    # find contours in the edge map, then initialize
+    # the contour that corresponds to the document
+    cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+    docCnt = None
+    # ensure that at least one contour was found
+    if len(cnts) > 0:
+        # sort the contours according to their size in
+        # descending order
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+        # loop over the sorted contours
+        for c in cnts:
+            # approximate the contour
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            # if our approximated contour has four points,
+            # then we can assume we have found the paper
+            if len(approx) == 4:
+                docCnt = approx
+                break
+                
+    paper = four_point_transform(image, docCnt.reshape(4, 2))
+    return paper
