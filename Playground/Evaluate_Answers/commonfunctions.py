@@ -6,6 +6,7 @@ from matplotlib.pyplot import bar
 from skimage.color import rgb2gray,rgb2hsv,gray2rgb
 from skimage.draw import circle_perimeter
 from skimage.transform import (hough_line, hough_line_peaks,hough_circle,hough_circle_peaks)
+from skimage.transform import resize
 
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -67,8 +68,8 @@ def perspective_correction(image):
 
     # load the image, convert it to grayscale, blur it
     # slightly, then find edges
-    gray = rgb2gray(image)*256
-    gray = np.uint8(gray)
+    #gray = rgb2gray(image)*256
+    gray = np.uint8(image)
 
     #blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     #edged = cv2.Canny(blurred, 75, 200)
