@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.exposure import histogram
 from matplotlib.pyplot import bar
-from skimage.color import rgb2gray,rgb2hsv,gray2rgb
+from skimage.color import rgb2gray,rgb2hsv,gray2rgb,rgba2rgb
 from skimage.draw import circle_perimeter
 from skimage.transform import (hough_line, hough_line_peaks,hough_circle,hough_circle_peaks)
 from skimage.transform import resize
@@ -17,7 +17,6 @@ from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
 
-
 # Convolution:
 from scipy.signal import convolve2d
 from scipy import fftpack
@@ -29,7 +28,7 @@ from skimage.feature import canny
 from skimage.measure import label
 from skimage.color import label2rgb
 from sklearn import cluster
-from skimage.filters import threshold_otsu
+from skimage.filters import threshold_otsu,apply_hysteresis_threshold
 from skimage.morphology import closing,dilation
 
 
@@ -68,20 +67,16 @@ def perspective_correction(image):
 
     # load the image, convert it to grayscale, blur it
     # slightly, then find edges
-    #gray = rgb2gray(image)*256
-    gray = np.uint8(image)
-
-    #blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    #edged = cv2.Canny(blurred, 75, 200)
-    
-    edged = np.uint8(canny(gray,sigma=4))
-    
+    gray = np.uint8(rgb2gray(image)*256)
+    ret,binary = cv2.threshold(gray,125,255,cv2.THRESH_BINARY)
 
     # find contours in the edge map, then initialize
     # the contour that corresponds to the document
-    cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
+    cnts = cv2.findContours(binary, cv2.RETR_EXTERNAL,
         cv2.CHAIN_APPROX_SIMPLE)
-    cnts = imutils.grab_contours(cnts)
+
+    cnts = cnts[0] if len(cnts)==2 else cnts[1]
+
     docCnt = None
     # ensure that at least one contour was found
     if len(cnts) > 0:
@@ -96,8 +91,10 @@ def perspective_correction(image):
             # if our approximated contour has four points,
             # then we can assume we have found the paper
             if len(approx) == 4:
-                docCnt = approx
-                break
-                
-    paper = four_point_transform(image, docCnt.reshape(4, 2))
-    return paper
+                x,y = image.shape[:2]
+                if peri > (x+y)*2/8: 
+                    #checking if contour length is bigger than the original image's length/8
+                    paper = four_point_transform(image, approx.reshape(4, 2))
+                    return paper, True
+
+    return None, False
