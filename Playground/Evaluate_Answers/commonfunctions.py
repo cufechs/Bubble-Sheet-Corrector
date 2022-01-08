@@ -74,6 +74,7 @@ def perspective_correction(image):
         _,binary = cv2.threshold(gray,125,255,cv2.THRESH_BINARY)
         cnts = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = cnts[0] if len(cnts)==2 else cnts[1]
+        show_images([binary])
         return cnts
 
     def findContours2():
@@ -81,10 +82,11 @@ def perspective_correction(image):
         edged = np.uint8(canny(gray,sigma=4))
         cnts = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = cnts[0] if len(cnts)==2 else cnts[1]
+        show_images([edged])
         return cnts
     
     
-    getContours = [findContours2, findContours1]
+    getContours = [findContours1, findContours2]
     for Contours in getContours:
         cnts = Contours()
         
@@ -95,9 +97,10 @@ def perspective_correction(image):
                 approx = cv2.approxPolyDP(c, 0.02 * peri, True)
                 # if our approximated contour has four points,
                 # then we can assume we have found the paper
+                print(len(approx))
                 if len(approx) == 4:
                     x,y = image.shape[:2]
-                    if peri > (x+y)*2/8: 
+                    if peri > (x+y)*2/4: 
                         #checking if contour length is bigger than the original image's length/8
                         paper = four_point_transform(image, approx.reshape(4, 2))
                         return paper, True
