@@ -17,6 +17,8 @@ from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
 
+from openpyxl import load_workbook
+
 # Convolution:
 from scipy.signal import convolve2d
 from scipy import fftpack
