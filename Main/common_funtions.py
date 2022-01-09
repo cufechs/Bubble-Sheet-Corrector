@@ -97,6 +97,16 @@ def removeShadow(img):
     result = cv2.merge(result_planes)
     result_norm = cv2.merge(result_norm_planes)
     return result
+
+def removeShadowGray(img):
+
+    dilated_img = cv2.dilate(img, np.ones((7,7), np.uint8)) 
+    bg_img = cv2.medianBlur(dilated_img, 21)
+    diff_img = 255 - cv2.absdiff(img, bg_img)
+    norm_img = diff_img.copy() # Needed for 3.x compatibility
+    cv2.normalize(diff_img, norm_img, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
+    return diff_img
+    
     
 def cropDigit(img,padding=3):
     im = img.copy()
