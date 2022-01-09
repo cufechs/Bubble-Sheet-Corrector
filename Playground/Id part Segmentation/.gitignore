@@ -1,0 +1,9 @@
+*.jpeg
+*.png
+*.jpg
+
+/solved_images
+/test
+/.ipynb_checkpoints
+/__pycache__
+trash.ipynb

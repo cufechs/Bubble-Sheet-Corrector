@@ -194,8 +194,7 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
     if show_info: print("Number of contours:" + str(len(contours)))
         
     data = []
-    data_i = []
-    data_temp=[]
+    data_cells=[]
     for i,c in enumerate(contours):
         x,y,w,h = cv2.boundingRect(c)
         #if w > image.shape[0]/8 or h > image.shape[1]/8: #if very large contour 
@@ -215,18 +214,17 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
         # To take the bigger 7 squares in the image, to avoid the logo's detection and digits
         data.sort(key=lambda x: (x[1]-x[0])*(x[3]-x[2]), reverse=True)
         data = data[:id_length]
-        data.sort(key=lambda x: x[2])
+        data.sort(key=lambda x: x[2]) #sorting rectangles from left to right
         ###
   
         for i,(y1,y2,x1,x2) in enumerate(data):
             im = resize(np.invert(binary[y1:y2,x1:x2].copy()),(32,32))
             im = im[2:-2,2:-2]
-            data_temp.append(cropDigit(im,padding=2))
-            data_i.append(im) 
+            data_cells.append(cropDigit(im,padding=2))
 
         id_str = ''
         for i in range(id_length):
-            p = detect_digit(data_temp[i], plot=False)
+            p = detect_digit(data_cells[i], plot=False)
             id_str += str(p)
 
     if show_info: 
@@ -234,7 +232,6 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
         plt.imshow(image)
         plt.title('image');
 
-        show_images(data_temp)
-        show_images(data_i)
+        show_images(data_cells)
         
     return id_str
