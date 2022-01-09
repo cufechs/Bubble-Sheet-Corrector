@@ -74,7 +74,6 @@ def perspective_correction(image):
         _,binary = cv2.threshold(gray,125,255,cv2.THRESH_BINARY)
         cnts = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = cnts[0] if len(cnts)==2 else cnts[1]
-        show_images([binary])
         return cnts
 
     def findContours2():
@@ -82,7 +81,6 @@ def perspective_correction(image):
         edged = np.uint8(canny(gray,sigma=4))
         cnts = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = cnts[0] if len(cnts)==2 else cnts[1]
-        show_images([edged])
         return cnts
     
     
@@ -97,7 +95,6 @@ def perspective_correction(image):
                 approx = cv2.approxPolyDP(c, 0.02 * peri, True)
                 # if our approximated contour has four points,
                 # then we can assume we have found the paper
-                print(len(approx))
                 if len(approx) == 4:
                     x,y = image.shape[:2]
                     if peri > (x+y)*2/4: 
@@ -124,10 +121,93 @@ def removeShadow(img):
     result_norm = cv2.merge(result_norm_planes)
     return result
     
-def get_id(img, id_length=7, show_info=False):
+def cropDigit(img,padding=3):
+    im = img.copy()
+    im = im > 100/255
+    y,x = im.shape
     
-    image,_ = perspective_correction(img.copy())
-    image = image[:image.shape[0]//4,image.shape[1]//2:]
+    flag = False
+    for i in range(y):
+        for j in range(x):
+            if im[i][j]!=0:
+                flag=True; break
+        if flag: break
+    y_upper = i
+    
+    flag = False
+    for i in range(y-1,0,-1):
+        for j in range(x):
+            if im[i][j]!=0:
+                flag=True; break
+        if flag: break
+    y_lower = y-i
+    
+    flag = False
+    for j in range(x):
+        for i in range(y):
+            if im[i][j]!=0:
+                flag=True; break
+        if flag: break
+    x_left = j
+    
+    flag = False
+    for j in range(x-1,0,-1):
+        for i in range(y):
+            if im[i][j]!=0:
+                flag=True; break
+        if flag: break
+    x_right = x-j
+        
+    maxy,miny = max(y_upper,y_lower), min(y_upper,y_lower)
+    maxy_i = 0 if y_upper>y_lower else 1
+    maxx,minx = max(x_left,x_right), min(x_left,x_right)
+    maxx_i = 0 if x_left>x_right else 1
+    
+    im = img.copy()
+    
+    shift_right = np.array([
+    [ 0, 0, 0],
+    [ 0, 0, 1],
+    [ 0, 0, 0]
+    ])
+    shift_left = np.array([
+    [ 0, 0, 0],
+    [ 1, 0, 0],
+    [ 0, 0, 0]
+    ])
+    
+    if x_left > x_right:
+        for _ in range((x_left-x_right)//2): 
+            im = convolve2d(im, shift_left)
+            im = im[1:-1,1:-1]
+            x_left-=1
+            x_right+=1
+    elif x_right > x_left:
+        for _ in range((x_right-x_left)//2): 
+            im = convolve2d(im, shift_right)
+            im = im[1:-1,1:-1]
+            x_left+=1
+            x_right-=1
+                
+    x_left = (maxy+miny)//2
+    x_right = (maxy+miny)//2
+            
+    y_upper = y_upper - padding if y_upper>padding else 0
+    y_lower = y_lower - padding if y_lower>padding else 1
+    x_left = x_left - padding if x_left>padding else 0
+    x_right = x_right - padding if x_right>padding else 1
+        
+    return resize(im[y_upper:-y_lower,x_left:-x_right],(28,28)) 
+
+
+def get_id(img, id_length=7, show_info=False, correct_perspective = False):
+    
+    if correct_perspective:
+        image,_ = perspective_correction(img.copy())
+    else: 
+        image = img.copy()
+        
+    image = image[image.shape[0]//16:image.shape[0]//4,image.shape[1]//2:]
     image = removeShadow(image)
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -139,7 +219,7 @@ def get_id(img, id_length=7, show_info=False):
     if show_info: print("Number of contours:" + str(len(contours)))
         
     data = []
-    data_i = []
+    data_cells=[]
     for i,c in enumerate(contours):
         x,y,w,h = cv2.boundingRect(c)
         #if w > image.shape[0]/8 or h > image.shape[1]/8: #if very large contour 
@@ -153,39 +233,31 @@ def get_id(img, id_length=7, show_info=False):
         data.append((y,y+h,x,x+w))
 
     if show_info: print("Number of contours:" + str(len(data)))
-
         
     id_str = id_length*'0'
     if len(data) >= id_length:
-        # To take the low 7 squares in the image, to avoid the logo's detecction
-        data.sort(key=lambda element: element[0], reverse=True)
+        # To take the bigger 7 squares in the image, to avoid the logo's detection and digits
+        data.sort(key=lambda x: (x[1]-x[0])*(x[3]-x[2]), reverse=True)
         data = data[:id_length]
-        data.sort(key=lambda element: element[2])
+        data.sort(key=lambda x: x[2]) #sorting rectangles from left to right
         ###
-
-        for y1,y2,x1,x2 in data:
-            data_i.append(thin(np.invert(binary[y1+2:y2-2,x1+2:x2-2].copy()),10))
+  
+        for i,(y1,y2,x1,x2) in enumerate(data):
+            im = resize(np.invert(binary[y1:y2,x1:x2].copy()),(32,32))
+            im = im[2:-2,2:-2]
+            data_cells.append(cropDigit(im,padding=2))
 
         id_str = ''
         for i in range(id_length):
-            p = detect_digit(data_i[i], plot=show_info)
+            p = detect_digit(data_cells[i], plot=False)
             id_str += str(p)
-        
 
     if show_info: 
-        plt.gray()
-
-        plt.figure(figsize=(15, 15))
-        plt.imshow(gray)
-        plt.title('gray')
-        plt.figure(figsize=(15, 15))
-        plt.imshow(binary)
-        plt.title('binary')
         plt.figure(figsize=(15, 15))
         plt.imshow(image)
         plt.title('image');
 
-        show_images(data_i)
+        show_images(data_cells)
         
     return id_str
     

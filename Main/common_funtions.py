@@ -156,11 +156,13 @@ def cropDigit(img,padding=3):
     if x_left > x_right:
         for _ in range((x_left-x_right)//2): 
             im = convolve2d(im, shift_left)
+            im = im[1:-1,1:-1]
             x_left-=1
             x_right+=1
     elif x_right > x_left:
         for _ in range((x_right-x_left)//2): 
             im = convolve2d(im, shift_right)
+            im = im[1:-1,1:-1]
             x_left+=1
             x_right-=1
                 
