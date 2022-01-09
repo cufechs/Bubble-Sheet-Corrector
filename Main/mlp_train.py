@@ -177,25 +177,13 @@ def evaluate(model):
 
 def detect_digit(img, plot=False):
        
-    # image preprocessing
-    #im = resize(img, (28,28))
-    im = img>0.6
-    im = resize(img, (28,28))
-    #im = np.invert(im)
-    im = binary_dilation(im, [[1,1],[1,1]])
-
-    im = resize(im,(112,112))
+    im = img
     im = resize(im,(28,28))
-    
     im = np.uint8(im*255)
-    
    
-    
     if plot:
-        plt.gray()
         plt.figure()
         plt.imshow(im)
-    
     
     # Model loading
     model = Net()
