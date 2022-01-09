@@ -170,11 +170,60 @@ def cropDigit(img,padding=3):
     x_right = (maxy+miny)//2
             
     y_upper = y_upper - padding if y_upper>padding else 0
-    y_lower = y_lower - padding if y_lower>padding else 1
+    y_lower = y_lower - padding if y_lower>padding else 0
     x_left = x_left - padding if x_left>padding else 0
-    x_right = x_right - padding if x_right>padding else 1
+    x_right = x_right - padding if x_right>padding else 0
+    
+    if y_lower!=0 and x_right!=0:
+        im = resize(im[y_upper:-y_lower,x_left:-x_right],(28,28)) 
+    elif y_lower!=0 and x_right==0:
+        im = resize(im[y_upper:-y_lower,x_left:],(28,28)) 
+    elif y_lower==0 and x_right!=0:
+        im = resize(im[y_upper:,x_left:-x_right],(28,28)) 
+    else:
+        im = resize(im[y_upper:,x_left:],(28,28)) 
         
-    return resize(im[y_upper:-y_lower,x_left:-x_right],(28,28)) 
+    im_temp = im.copy()
+    im_temp = im_temp > 50/255
+        
+    flag = False
+    for i in range(y):
+        for j in range(x):
+            if im_temp[i][j]!=0:
+                flag=True; break
+        if flag: break
+    y_upper = i
+    
+    flag = False
+    for i in range(y-1,0,-1):
+        for j in range(x):
+            if im_temp[i][j]!=0:
+                flag=True; break
+        if flag: break
+    y_lower = y-i
+    
+    shift_up = np.array([
+    [ 0, 0, 0],
+    [ 0, 0, 0],
+    [ 0, 1, 0]
+    ])
+    shift_down = np.array([
+    [ 0, 1, 0],
+    [ 0, 0, 0],
+    [ 0, 0, 0]
+    ])
+    
+    if y_upper > y_lower:
+        for _ in range((y_upper-y_lower)//2): 
+            im = convolve2d(im, shift_down)
+            im = im[1:-1,1:-1]
+            
+    elif y_lower > y_upper:
+        for _ in range((y_lower-y_upper)//2): 
+            im = convolve2d(im, shift_up)
+            im = im[1:-1,1:-1]
+            
+    return im
 
 
 def get_id(img, id_length=7, show_info=False, correct_perspective = False):
