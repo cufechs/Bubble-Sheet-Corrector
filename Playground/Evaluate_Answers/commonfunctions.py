@@ -450,10 +450,7 @@ def loadModelAnswer(fileName):
     return modelAnwser
 
 def getAnswers(circleCoordinates,diff,show_info=False):
-    # thresh = threshold_otsu(diff)
-    # diff=diff > thresh
-    #answers_closing = closing(diff,np.ones((3,3),dtype=int))
-    #show_images([diff],["diff"])
+    # get radii:
     radii= circleCoordinates[:,0]
     radius=np.average(radii)
     #print(radius)
@@ -475,7 +472,7 @@ def getAnswers(circleCoordinates,diff,show_info=False):
     # sort by Y and see if any centers are repeated due to Hough errors!!
     ###
     needsModificationDueYindex = np.zeros(rows.shape[0],dtype=int)
-    gotGoodY = False
+    #gotGoodY = False
     goodYindecies = []
     for i in range(rows.shape[0]):
         # sort each row with y
@@ -488,10 +485,11 @@ def getAnswers(circleCoordinates,diff,show_info=False):
                 #print('This row '+ str(i)+' needs modification!!')
                 break
             prevYindex = yindex
-        if needsModificationDueYindex[i] == 0 and not gotGoodY:
-            goodYindecies = rows[i,:,2]
+        if needsModificationDueYindex[i] == 0:# and not gotGoodY:
+            # avg these goodYindecies
+            goodYindecies = (goodYindecies + rows[i,:,2])/2
             #print(goodYindecies)
-            gotGoodY = True
+            #gotGoodY = True
     #print(needsModificationDueYindex)
     for i in range(len(needsModificationDueYindex)):
         if needsModificationDueYindex[i] == 1:
