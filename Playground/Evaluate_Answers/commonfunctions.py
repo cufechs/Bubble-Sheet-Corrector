@@ -245,7 +245,7 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
         for i,(y1,y2,x1,x2) in enumerate(data):
             im = resize(np.invert(binary[y1:y2,x1:x2].copy()),(32,32))
             im = im[2:-2,2:-2]
-            data_cells.append(cropDigit(im,padding=2))
+            data_cells.append(cropDigit(im,padding=4))
 
         id_str = ''
         for i in range(id_length):
