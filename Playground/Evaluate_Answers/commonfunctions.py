@@ -134,7 +134,7 @@ def removeShadowGray(img):
     
 def cropDigit(img,padding=3):
     im = img.copy()
-    im = im > 100/255
+    im = im > 150/255
     y,x = im.shape
     
     flag = False
@@ -450,7 +450,10 @@ def loadModelAnswer(fileName):
     return modelAnwser
 
 def getAnswers(circleCoordinates,diff,show_info=False):
-    # get radii:
+    # thresh = threshold_otsu(diff)
+    # diff=diff > thresh
+    #answers_closing = closing(diff,np.ones((3,3),dtype=int))
+    #show_images([diff],["diff"])
     radii= circleCoordinates[:,0]
     radius=np.average(radii)
     #print(radius)
@@ -472,7 +475,7 @@ def getAnswers(circleCoordinates,diff,show_info=False):
     # sort by Y and see if any centers are repeated due to Hough errors!!
     ###
     needsModificationDueYindex = np.zeros(rows.shape[0],dtype=int)
-    #gotGoodY = False
+    gotGoodY = False
     goodYindecies = []
     for i in range(rows.shape[0]):
         # sort each row with y
@@ -485,16 +488,44 @@ def getAnswers(circleCoordinates,diff,show_info=False):
                 #print('This row '+ str(i)+' needs modification!!')
                 break
             prevYindex = yindex
-        if needsModificationDueYindex[i] == 0:# and not gotGoodY:
-            # avg these goodYindecies
-            goodYindecies = (goodYindecies + rows[i,:,2])/2
+        if needsModificationDueYindex[i] == 0 and not gotGoodY:
+            goodYindecies = rows[i,:,2]
             #print(goodYindecies)
-            #gotGoodY = True
-    #print(needsModificationDueYindex)
+            gotGoodY = True
+     ###
+    cols = []
+    foundCols = False
+    if len(goodYindecies) == 0: 
+        for i in range(rows.shape[0]):
+            if foundCols:
+                break
+            # sort each row with y
+            rows[i,:,2] = np.sort(rows[i,:,2])
+            for yindex in range(1,len(rows[i,:,2])):
+                if len(cols)==5:
+                    foundCols = True
+                    break
+                insertCols = False
+                if len(cols) == 0:
+                    insertCols = True
+                for yVal in cols:
+                    insertCols = True
+                    if np.abs(yVal - rows[i,:,2][yindex]) < radius:
+                        # we found similar y before
+                        insertCols = False
+                        break
+                if insertCols:
+                    cols.append(rows[i,:,2][yindex])
+    
+    cols = sorted(cols)
+    if show_info: print(cols)
     for i in range(len(needsModificationDueYindex)):
         if needsModificationDueYindex[i] == 1:
-            rows[i,:,2] = goodYindecies
-    print(rows)
+            if len(goodYindecies) == 0:
+                rows[i,:,2] = cols
+            else:
+                rows[i,:,2] = goodYindecies
+    #print(rows)
     ###
     # calculate answers and compare it with model answer:
     currentAnswer = np.zeros(rows.shape[0],dtype=int)
@@ -504,15 +535,115 @@ def getAnswers(circleCoordinates,diff,show_info=False):
         for r,x,y in rows[rindex]:
             white_count = count_white(r,x,y,diff)
             #print(white_count,x,y)
-            if white_count > perim_circ:
+            if white_count > perim_circ + 25: # 25 scaling issues i.e. saftey margin
                 if currentAnswer[rindex] == 0:
+                    #print('1st ans: at x,y , white_count -> perim_circ ', x ,y , white_count , perim_circ)
                     currentAnswer[rindex] = ansNo
                 else:
+                    #print('other ans: at x,y ,white_count -> perim_circ ', x ,y , white_count , perim_circ)
                     currentAnswer[rindex] = -1
             ansNo += 1
         #print('Next row')
     #print(currentAnswer)
     return currentAnswer
+# def getAnswers(circleCoordinates,diff,show_info=False):
+#     # get radii:
+#     radii= circleCoordinates[:,0]
+#     radius=np.average(radii)
+#     #print(radius)
+#     ###
+#     #sort with x
+#     circleCoordinates[:,1] = np.sort(circleCoordinates[:,1])
+#     #print(circleCoordinates)
+#     # then categorize every answers with the same (near) x value ; diff between each x value is less than radius
+#     rows = []
+#     for r,x,y in circleCoordinates:
+#         if len(rows)==0:
+#             rows.append([(r,x,y)]) 
+#         elif np.abs(rows[-1][0][1] - x) < radius:
+#             rows[-1].append((r,x,y))
+#         else:
+#             rows.append([(r,x,y)]) 
+#     rows = np.array(rows)
+#     cols = []#np.zeros(rows[0].shape[0])
+#     # print(cols)
+#     #if show_info: print(rows)
+#     # sort by Y and see if any centers are repeated due to Hough errors!!
+#     ###
+#     needsModificationDueYindex = np.zeros(rows.shape[0],dtype=int)
+#     foundCols = False
+#     gotGoodY = False
+#     goodYindecies = []
+#     for i in range(rows.shape[0]):
+#         # sort each row with y
+#         rows[i,:,2] = np.sort(rows[i,:,2])
+#         #print("row =",rows[i,:,2]) 
+#         prevYindex = 0
+#         for yindex in range(1,len(rows[i,:,2])):
+#             if np.abs(rows[i,:,2][prevYindex] - rows[i,:,2][yindex]) < radius:
+#                 needsModificationDueYindex[i] = 1
+#                 #print('This row '+ str(i)+' needs modification!!')
+#                 break
+#             prevYindex = yindex
+#         if needsModificationDueYindex[i] == 0 and not gotGoodY:
+#             goodYindecies = rows[i,:,2]
+#             #print(goodYindecies)
+#             gotGoodY = True
+# #             else:
+# #                 # avg these goodYindecies
+# #                 goodYindecies = (goodYindecies + rows[i,:,2])/2
+#             #print(goodYindecies)
+#             #gotGoodY = True
+#     #print(needsModificationDueYindex)
+#     if len(goodYindecies) == 0: 
+#         for i in range(rows.shape[0]):
+#             if foundCols:
+#                 break
+#             # sort each row with y
+#             rows[i,:,2] = np.sort(rows[i,:,2])
+#             for yindex in range(1,len(rows[i,:,2])):
+#                 if len(cols)==5:
+#                     foundCols = True
+#                     break
+#                 insertCols = False
+#                 if len(cols) == 0:
+#                     insertCols = True
+#                 for yVal in cols:
+#                     insertCols = True
+#                     if np.abs(yVal - rows[i,:,2][yindex]) < radius:
+#                         # we found similar y before
+#                         insertCols = False
+#                         break
+#                 if insertCols:
+#                     cols.append(rows[i,:,2][yindex])
+    
+#     cols = sorted(cols)
+#     if show_info: print(cols)
+#     for i in range(len(needsModificationDueYindex)):
+#         if needsModificationDueYindex[i] == 1:
+#             if len(goodYindecies) == 0:
+#                 rows[i,:,2] = cols
+#             else:
+#                 rows[i,:,2] = goodYindecies
+#     if show_info: print(rows)
+#     ###
+#     # calculate answers and compare it with model answer:
+#     currentAnswer = np.zeros(rows.shape[0],dtype=int)
+#     perim_circ= np.pi * radius * 2          
+#     for rindex in range(rows.shape[0]):
+#         ansNo = 1
+#         for r,x,y in rows[rindex]:
+#             white_count = count_white(r,x,y,diff)
+#             #print(white_count,x,y)
+#             if white_count > perim_circ:
+#                 if currentAnswer[rindex] == 0:
+#                     currentAnswer[rindex] = ansNo
+#                 else:
+#                     currentAnswer[rindex] = -1
+#             ansNo += 1
+#         #print('Next row')
+#     #print(currentAnswer)
+#     return currentAnswer
 
 
 def getFinalAnswers(img, modelAnswerPath='Model_answer.txt', correctPerspective=False, showInfo=False):
@@ -575,8 +706,8 @@ def getFinalAnswers(img, modelAnswerPath='Model_answer.txt', correctPerspective=
 
     circles_chunck1 = Hough(ans_chunck1) 
     circles_chunck2 = Hough(ans_chunck2)   
-    coordinates_chunk1 = show_Hough(ans_chunck1,circles_chunck1, showInfo=True)
-    coordinates_chunk2 = show_Hough(ans_chunck2,circles_chunck2, showInfo=True)
+    coordinates_chunk1 = show_Hough(ans_chunck1,circles_chunck1, showInfo)
+    coordinates_chunk2 = show_Hough(ans_chunck2,circles_chunck2, showInfo)
 
     modelAnwsers = loadModelAnswer(modelAnswerPath)
 
@@ -588,8 +719,11 @@ def getFinalAnswers(img, modelAnswerPath='Model_answer.txt', correctPerspective=
 
     if showInfo: print('Model answers: ',modelAnwsers)
     if showInfo: print('Current answers: ',currAnswers)
+    print('Current answers: ')
+    for i in range(currAnswers.shape[0]):
+        print('Q'+str(i+1)+' = ' + str(currAnswers[i]))
     grade = (modelAnwsers == currAnswers)
-
+    grade = grade.sum() / len(grade)
     if showInfo: print('Grade: ' + str(grade.sum()) + '/' + str(len(grade)))
     
     return flag, modelAnwsers, currAnswers, grade
