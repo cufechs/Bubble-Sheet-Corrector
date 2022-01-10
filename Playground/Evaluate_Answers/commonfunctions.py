@@ -134,7 +134,7 @@ def removeShadowGray(img):
     
 def cropDigit(img,padding=3):
     im = img.copy()
-    im = im > 100/255
+    im = im > 150/255
     y,x = im.shape
     
     flag = False
@@ -383,8 +383,8 @@ def show_Hough(image,circles, showInfo=False):
     return circleCoordinates
 
 
-def crop_answers_section(bubbles_w_cross, show_info=False):
-    cross_template = loadImage("digital_images/bubble_w_cross.png")
+def crop_answers_section(bubbles_w_cross, refShape=(0,0), show_info=False, pad=False, rowsCount=10, colCount=2):
+    cross_template=loadImage("digital_images/bubble_w_cross.png")
 
     result=cv2.matchTemplate(bubbles_w_cross, cross_template, cv2.TM_CCORR_NORMED) 
     objects_matched = []   # get the highest 2 matches with templates and their locations (maxLoc)
@@ -414,7 +414,13 @@ def crop_answers_section(bubbles_w_cross, show_info=False):
 
     p1 = objects_matched[0]
     p2 = objects_matched[-1]
-    bubbles_w_cross = bubbles_w_cross[p1[1]:p2[1], p1[0]:p2[0]]
+    
+    if pad:
+        bubbles_w_cross = bubbles_w_cross[p1[1] - (refShape[0]//rowsCount)//8:p2[1]+(refShape[0]//rowsCount)//8,
+                                          p1[0] - (refShape[0]//rowsCount)//8:p2[0]+(refShape[0]//rowsCount)//8]
+    else:
+        bubbles_w_cross = bubbles_w_cross[p1[1]:p2[1], p1[0]:p2[0]]
+    
     return bubbles_w_cross
 
 def count_white(r,x,y,diff):
@@ -450,7 +456,10 @@ def loadModelAnswer(fileName):
     return modelAnwser
 
 def getAnswers(circleCoordinates,diff,show_info=False):
-    # get radii:
+    # thresh = threshold_otsu(diff)
+    # diff=diff > thresh
+    #answers_closing = closing(diff,np.ones((3,3),dtype=int))
+    #show_images([diff],["diff"])
     radii= circleCoordinates[:,0]
     radius=np.average(radii)
     #print(radius)
@@ -472,7 +481,7 @@ def getAnswers(circleCoordinates,diff,show_info=False):
     # sort by Y and see if any centers are repeated due to Hough errors!!
     ###
     needsModificationDueYindex = np.zeros(rows.shape[0],dtype=int)
-    #gotGoodY = False
+    gotGoodY = False
     goodYindecies = []
     for i in range(rows.shape[0]):
         # sort each row with y
@@ -485,16 +494,44 @@ def getAnswers(circleCoordinates,diff,show_info=False):
                 #print('This row '+ str(i)+' needs modification!!')
                 break
             prevYindex = yindex
-        if needsModificationDueYindex[i] == 0:# and not gotGoodY:
-            # avg these goodYindecies
-            goodYindecies = (goodYindecies + rows[i,:,2])/2
+        if needsModificationDueYindex[i] == 0 and not gotGoodY:
+            goodYindecies = rows[i,:,2]
             #print(goodYindecies)
-            #gotGoodY = True
-    #print(needsModificationDueYindex)
+            gotGoodY = True
+     ###
+    cols = []
+    foundCols = False
+    if len(goodYindecies) == 0: 
+        for i in range(rows.shape[0]):
+            if foundCols:
+                break
+            # sort each row with y
+            rows[i,:,2] = np.sort(rows[i,:,2])
+            for yindex in range(1,len(rows[i,:,2])):
+                if len(cols)==5:
+                    foundCols = True
+                    break
+                insertCols = False
+                if len(cols) == 0:
+                    insertCols = True
+                for yVal in cols:
+                    insertCols = True
+                    if np.abs(yVal - rows[i,:,2][yindex]) < radius:
+                        # we found similar y before
+                        insertCols = False
+                        break
+                if insertCols:
+                    cols.append(rows[i,:,2][yindex])
+    
+    cols = sorted(cols)
+    if show_info: print(cols)
     for i in range(len(needsModificationDueYindex)):
         if needsModificationDueYindex[i] == 1:
-            rows[i,:,2] = goodYindecies
-    print(rows)
+            if len(goodYindecies) == 0:
+                rows[i,:,2] = cols
+            else:
+                rows[i,:,2] = goodYindecies
+    #print(rows)
     ###
     # calculate answers and compare it with model answer:
     currentAnswer = np.zeros(rows.shape[0],dtype=int)
@@ -515,7 +552,9 @@ def getAnswers(circleCoordinates,diff,show_info=False):
     return currentAnswer
 
 
-def getFinalAnswers(img, modelAnswerPath='Model_answer.txt', correctPerspective=False, showInfo=False):
+def getFinalAnswers(img, padAnsSection=False, modelAnswerPath='Model_answer.txt', correctPerspective=False, showInfo=False,
+                   bubbles_ref='digital_images/bubbles_empty_with_cross.jpeg', rowsCount=10, colCount=2):
+    
     if showInfo: show_images([img])
     
     flag = True
@@ -527,64 +566,53 @@ def getFinalAnswers(img, modelAnswerPath='Model_answer.txt', correctPerspective=
     if showInfo: show_images([answers],["perspective"])
 
     paper_gray = rgb2gray(answers)*255
-    paper_gray_resized = resize(paper_gray,(1600,1286))
+    paper_gray_resized = resize(paper_gray,(1600,1286)) # A4 ref size
     paper_gray_resized = paper_gray_resized.astype("uint8")
-
     paper_gray_resized = removeShadowGray(paper_gray_resized)
-    out_ans = crop_answers_section(paper_gray_resized)
     
-    bubbles_w_cross=loadImage("digital_images/bubbles_empty_with_cross.jpeg")
-    out_ref = crop_answers_section(bubbles_w_cross)
+    bubbles_w_cross=loadImage(bubbles_ref)
+    out_ref = crop_answers_section(bubbles_w_cross, rowsCount=rowsCount, colCount=colCount)
     ref_shape = out_ref.shape
-    
-    ref_chunck1 =out_ref[:,0:370]  #seg bel 7ob
-    ref_chunck2 =out_ref[:,450:]
-    thresh1 = threshold_otsu(ref_chunck1)
-    thresh2 = threshold_otsu(ref_chunck2)
-    ref_chunck1 = ref_chunck1 > thresh1
-    ref_chunck2 = ref_chunck2 > thresh2
+    if showInfo: show_images([out_ref])
+        
+    out_ans = crop_answers_section(paper_gray_resized, pad=padAnsSection, rowsCount=rowsCount, colCount=colCount, refShape=ref_shape)
+    if showInfo: show_images([out_ans])
+        
+    ref_chuncks = []
+    for i in range(colCount):
+        temp = out_ref[:,i*ref_shape[1]//colCount:(i+1)*ref_shape[1]//colCount]
+        if showInfo: show_images([temp])
+        thresh = threshold_otsu(temp)
+        temp = temp > thresh
+        ref_chuncks.append(temp)
 
     out_ans = resize(out_ans,ref_shape) 
     out_ans = removeShadowGray((out_ans*255).astype("uint8"))
     if showInfo: show_images([out_ans])
 
-    ans_chunck1 =out_ans[:,0:370]  #seg bel 7ob
-    ans_chunck2 =out_ans[:,450:]
-
-    # resize chunks to match
-    ans_chunck1 = resize(ans_chunck1,ref_chunck1.shape)
-    ans_chunck2 = resize(ans_chunck2,ref_chunck2.shape)
-
-    thresh1, thresh2 = 240/255, 240/255
-
-    ans_chunck1 = (ans_chunck1 < thresh1)
-    ans_chunck2 = (ans_chunck2 < thresh2)
-
-    if showInfo: show_images([ref_chunck1,ref_chunck2])
-    if showInfo: show_images([ans_chunck1,ans_chunck2])
+    ans_chuncks = []
+    for i in range(colCount):
+        temp = out_ans[:,i*ref_shape[1]//colCount:(i+1)*ref_shape[1]//colCount]
+        temp = resize(temp,ref_chuncks[i].shape)
+        thresh = 240/255
+        temp = temp < thresh #binarization
+        temp = binary_closing(temp, np.ones((7,7), np.uint8)) # closing bubbles to fill
+        ans_chuncks.append(temp)
     
-    # closing bubbles to fill
-    ans_chunck1 = binary_closing(ans_chunck1, np.ones((7,7), np.uint8))
-    ans_chunck2 = binary_closing(ans_chunck2, np.ones((7,7), np.uint8))
+    if showInfo: show_images(ans_chuncks)
     
-    if showInfo: show_images([ans_chunck1,ans_chunck2])
-
-    if showInfo: print(ans_chunck1.shape,ans_chunck2.shape,ref_chunck1.shape,ref_chunck2.shape)
-
-    if showInfo: show_images([ans_chunck1])
-
-    circles_chunck1 = Hough(ans_chunck1) 
-    circles_chunck2 = Hough(ans_chunck2)   
-    coordinates_chunk1 = show_Hough(ans_chunck1,circles_chunck1, showInfo=True)
-    coordinates_chunk2 = show_Hough(ans_chunck2,circles_chunck2, showInfo=True)
+    coordinates_chunks = []
+    for ans_chunck in ans_chuncks:
+        coordinates_chunks.append(show_Hough(ans_chunck, Hough(ans_chunck), showInfo))
 
     modelAnwsers = loadModelAnswer(modelAnswerPath)
 
-    chunkAnswers1 = getAnswers(coordinates_chunk1,ans_chunck1,showInfo)
-    chunkAnswers2 = getAnswers(coordinates_chunk2,ans_chunck2,showInfo)
+    chunkAnswers = []
+    for i in range(colCount):
+        chunkAnswers.append(getAnswers(coordinates_chunks[i], ans_chuncks[i], showInfo))
 
     modelAnwsers = np.array(modelAnwsers)
-    currAnswers = np.concatenate((chunkAnswers1, chunkAnswers2))
+    currAnswers = np.concatenate(chunkAnswers)
 
     if showInfo: print('Model answers: ',modelAnwsers)
     if showInfo: print('Current answers: ',currAnswers)
