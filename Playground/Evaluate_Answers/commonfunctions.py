@@ -721,6 +721,6 @@ def getFinalAnswers(img, padAnsSection=False, modelAnswerPath='Model_answer.txt'
         print('Q'+str(i+1)+' = ' + str(currAnswers[i]))
     grade = (modelAnwsers == currAnswers)
     grade = grade.sum() / len(grade)
-    if showInfo: print('Grade: ' + str(grade.sum()) + '/' + str(len(grade)))
+    if showInfo: print('Grade: ' + str(grade * len(currAnswers) ) + '/' + str(len(currAnswers)))
     
     return flag, modelAnwsers, currAnswers, grade
