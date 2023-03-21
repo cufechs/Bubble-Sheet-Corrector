@@ -1,23 +1,26 @@
+import cv2
+
 import numpy as np
-import skimage.io as io
 import matplotlib.pyplot as plt
 
-from skimage.color import rgb2gray, rgba2rgb
+import skimage.io as io
 from skimage.feature import canny
 from skimage.morphology import thin
 from skimage.transform import resize
-from scipy.signal import convolve2d
+from skimage.filters import threshold_otsu
+from skimage.color import rgb2gray, rgba2rgb
+from skimage.morphology import binary_closing
 
+from openpyxl import load_workbook
+from mlp_train import detect_digit
+from scipy.signal import convolve2d
 from imutils.perspective import four_point_transform
 
-from mlp_train import detect_digit
-
-import cv2
 
 def loadImage(path):
     image = io.imread(path)
     
-    if len(image.shape) == 4:
+    if image.shape[-1] == 4:
         image = rgba2rgb(image)
     
     if len(image.shape) > 2:
@@ -27,7 +30,7 @@ def loadImage(path):
     return image
 
 # Show the figures / plots inside the notebook
-def show_images(images,titles=None):
+def show_images(images, titles=None, no_dim=True):
     #This function is used to show image(s) with titles by sending an array of images and an array of associated titles.
     # images[0] will be drawn with the title titles[0] if exists
     # You aren't required to understand this function, use it as-is.
@@ -41,6 +44,9 @@ def show_images(images,titles=None):
             plt.gray()
         plt.imshow(image)
         a.set_title(title)
+        if no_dim:
+            a.set_xticks([])
+            a.set_yticks([])
         n += 1
     fig.set_size_inches(np.array(fig.get_size_inches()) * n_ims)
     plt.show()  
@@ -61,7 +67,8 @@ def perspective_correction(image):
         cnts = cnts[0] if len(cnts)==2 else cnts[1]
         return cnts
     
-    getContours = [findContours2, findContours1]
+    
+    getContours = [findContours1, findContours2]
     for Contours in getContours:
         cnts = Contours()
         
@@ -90,7 +97,7 @@ def removeShadow(img):
         dilated_img = cv2.dilate(plane, np.ones((7,7), np.uint8))
         bg_img = cv2.medianBlur(dilated_img, 21)
         diff_img = 255 - cv2.absdiff(plane, bg_img)
-        norm_img = cv2.normalize(diff_img,None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
+        norm_img = cv2.normalize(diff_img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
         result_planes.append(diff_img)
         result_norm_planes.append(norm_img)
 
@@ -110,7 +117,7 @@ def removeShadowGray(img):
     
 def cropDigit(img,padding=3):
     im = img.copy()
-    im = im > 100/255
+    im = im > 150/255
     y,x = im.shape
     
     flag = False
@@ -236,7 +243,7 @@ def cropDigit(img,padding=3):
     return im
 
 
-def get_id(img, id_length=7, show_info=False, correct_perspective = False):
+def get_id(img, id_length=7, show_info=0, correct_perspective = False):
     
     if correct_perspective:
         image,_ = perspective_correction(img.copy())
@@ -252,7 +259,7 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
     _,binary = cv2.threshold(gray,235,255,cv2.THRESH_BINARY)
     contours,_ = cv2.findContours(binary,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
         
-    if show_info: print("Number of contours:" + str(len(contours)))
+    if show_info > 1: print("Number of contours (raw):", len(contours))
         
     data = []
     data_cells=[]
@@ -268,7 +275,7 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
         cv2.rectangle(image, (x, y), (x + w, y + h), (36,255,12), 2)
         data.append((y,y+h,x,x+w))
 
-    if show_info: print("Number of contours:" + str(len(data)))
+    if show_info > 1: print("Number of contours after filtering:" , len(data))
         
     id_str = id_length*'0'
     if len(data) >= id_length:
@@ -288,11 +295,364 @@ def get_id(img, id_length=7, show_info=False, correct_perspective = False):
             p = detect_digit(data_cells[i], plot=False)
             id_str += str(p)
 
-    if show_info: 
+    if show_info > 0: 
         plt.figure(figsize=(15, 15))
         plt.imshow(image)
-        plt.title('image');
+        plt.title('Image cropped')
 
         show_images(data_cells)
         
+        print('ID:', id_str)
+        
     return id_str
+    
+
+def Hough(image):
+    img = canny(image)
+    (M,N) = img.shape
+    R_max = 30 #np.max((M,N))
+    R_min = 20
+    threshold = 10
+    region = 10
+    R = R_max - R_min
+    #Initializing accumulator array.
+    #Accumulator array is a 3 dimensional array with the dimensions representing
+    #the radius, X coordinate and Y coordinate resectively.
+    #Also appending a padding of 2 times R_max to overcome the problems of overflow
+    A = np.zeros((R_max,M+2*R_max,N+2*R_max))
+    B = np.zeros((R_max,M+2*R_max,N+2*R_max))
+    #Precomputing all angles to increase the speed of the algorithm
+    theta = np.arange(0,360)*np.pi/180
+    edges = np.argwhere(img[:,:]) #Extracting all edge coordinates
+    for val in range(R):
+        r = R_min+val
+        #Creating a Circle Blueprint
+        bprint = np.zeros((2*(r+1) - 1,2*(r+1) - 1))
+        (m,n) = (r,r) #Finding out the center of the blueprint
+        for angle in theta:
+            x = int(np.round(r*np.cos(angle)))
+            y = int(np.round(r*np.sin(angle)))
+            bprint[m+x,n+y] = 1
+        constant = np.argwhere(bprint).shape[0]
+        for x,y in edges: #For each edge coordinates
+            #Centering the blueprint circle over the edges
+            #and updating the accumulator array
+            X = [x-m-1+R_max,x+m+R_max] #Computing the extreme X values
+            Y = [y-n-1+R_max,y+n+R_max] #Computing the extreme Y values
+            A[r,X[0]:X[1],Y[0]:Y[1]] += bprint
+        A[r][A[r]<threshold*constant/r] = 0
+    for r,x,y in np.argwhere(A):
+        temp = A[r-region:r+region,x-region:x+region,y-region:y+region]
+        try:
+            p,a,b = np.unravel_index(np.argmax(temp),temp.shape)
+        except:
+            continue
+        B[r+(p-region),x+(a-region),y+(b-region)] = 1
+    circles = B[:,R_max:-R_max,R_max:-R_max] #removing padding
+    circleCoordinates = np.argwhere(circles) # Extracting the circle information
+    return circleCoordinates
+
+
+def show_Hough(images, circleCoordinatesList):
+    n_ims = len(images)
+    fig = plt.figure()
+    n = 1
+    for i, (image, circleCoordinates) in enumerate(zip(images,circleCoordinatesList)):
+        a = fig.add_subplot(1,n_ims,n)
+        if image.ndim == 2: 
+            plt.gray()
+        plt.imshow(image)
+        
+        for r, x, y in circleCoordinates:
+            circle = plt.Circle((y, x), r, color=(1, 0, 0), fill=False, linewidth=3)
+            a.add_patch(circle)
+        
+        a.set_title('Column {} filled and detected'.format(i+1))
+        a.set_xticks([])
+        a.set_yticks([])
+        
+        n += 1
+        
+    fig.set_size_inches(np.array(fig.get_size_inches()) * n_ims)
+    plt.show() 
+
+
+def crop_answers_section(bubbles_w_cross, refShape=(0,0), show_info=False, pad=False, rowsCount=10, colCount=2):
+    cross_template=loadImage("auxiliary data/bubble_w_cross.png")
+
+    result=cv2.matchTemplate(bubbles_w_cross, cross_template, cv2.TM_CCORR_NORMED) 
+    objects_matched = []   # get the highest 2 matches with templates and their locations (maxLoc)
+    while len(objects_matched) < 2:         # 2 matches
+
+        minV, maxV, minLoc, maxLoc = cv2.minMaxLoc(result)   
+
+        #print(result[maxLoc[1]-3:maxLoc[1]+3,maxLoc[0]-3:maxLoc[0]+3]) 
+        if show_info: print(maxLoc)
+
+        for i in range(-3, 3):          # we remove the highest match to avoid re-matching again
+            for j in range(-3, 3):  
+                result[maxLoc[1] + i, maxLoc[0] + j] = 0
+        
+        # print(result[maxLoc[1]-3:maxLoc[1]+3,maxLoc[0]-3:maxLoc[0]+3])
+
+        #get the centers of the highest match template
+        maxLoc = list(maxLoc)  #tuple is immutable , convert to list
+        maxLoc[0] = maxLoc[0] + cross_template.shape[1] // 2  
+        maxLoc[1] = maxLoc[1] + cross_template.shape[0] // 2
+        maxLoc = tuple(maxLoc)
+
+        #add location of the match in objects matched
+        objects_matched.append(maxLoc)
+
+        objects_matched = sorted(objects_matched) 
+
+    p1 = objects_matched[0]
+    p2 = objects_matched[-1]
+    
+    if pad:
+        bubbles_w_cross = bubbles_w_cross[p1[1] - (refShape[0]//rowsCount)//8:p2[1]+(refShape[0]//rowsCount)//8,
+                                          p1[0] - (refShape[0]//rowsCount)//8:p2[0]+(refShape[0]//rowsCount)//8]
+    else:
+        bubbles_w_cross = bubbles_w_cross[p1[1]:p2[1], p1[0]:p2[0]]
+    
+    return bubbles_w_cross
+
+
+def count_white(r,x,y,diff):
+    top_l = (x-r//2,y-r//2)
+    bottom_r = (x+r//2,y+r//2)
+    count_white=0
+    for ix in range(top_l[0],bottom_r[0]):
+        for jy in range(top_l[1],bottom_r[1]):
+            if diff[ix,jy]==1:
+                count_white+=1
+    return count_white
+
+
+def loadModelAnswer(fileName):
+    modelAnwser = []
+    # open file with fileName and read the data:
+    with open(fileName) as file:
+        lines = file.readlines()
+        for line in lines:
+            data = line.rstrip()
+            if data in ['a','A',1]:
+                modelAnwser.append(1)
+            elif data in ['b','B',2]:
+                modelAnwser.append(2)
+            elif data in ['c','C',3]:
+                modelAnwser.append(3)
+            elif data in ['d','D',4]:
+                modelAnwser.append(4)
+            elif data in ['e','E',5]:
+                modelAnwser.append(5)
+            elif data in ['f','F',6]:
+                modelAnwser.append(6)
+    return modelAnwser
+
+
+def getAnswers(circleCoordinates,diff,show_info=False):
+    # thresh = threshold_otsu(diff)
+    # diff=diff > thresh
+    #answers_closing = closing(diff,np.ones((3,3),dtype=int))
+    #show_images([diff],["diff"])
+    radii= circleCoordinates[:,0]
+    radius=np.average(radii)
+    #print(radius)
+    ###
+    #sort with x
+    circleCoordinates[:,1] = np.sort(circleCoordinates[:,1])
+    #print(circleCoordinates)
+    # then categorize every answers with the same (near) x value ; diff between each x value is less than radius
+    rows = []
+    for r,x,y in circleCoordinates:
+        if len(rows)==0:
+            rows.append([(r,x,y)]) 
+        elif np.abs(rows[-1][0][1] - x) < radius:
+            rows[-1].append((r,x,y))
+        else:
+            rows.append([(r,x,y)]) 
+    rows = np.array(rows)
+    #if show_info: print(rows)
+    # sort by Y and see if any centers are repeated due to Hough errors!!
+    ###
+    needsModificationDueYindex = np.zeros(rows.shape[0],dtype=int)
+    gotGoodY = False
+    goodYindecies = []
+    for i in range(rows.shape[0]):
+        # sort each row with y
+        rows[i,:,2] = np.sort(rows[i,:,2])
+        #print("row =",rows[i,:,2]) 
+        prevYindex = 0
+        for yindex in range(1,len(rows[i,:,2])):
+            if np.abs(rows[i,:,2][prevYindex] - rows[i,:,2][yindex]) < radius:
+                needsModificationDueYindex[i] = 1
+                #print('This row '+ str(i)+' needs modification!!')
+                break
+            prevYindex = yindex
+        if needsModificationDueYindex[i] == 0 and not gotGoodY:
+            goodYindecies = rows[i,:,2]
+            #print(goodYindecies)
+            gotGoodY = True
+     ###
+    cols = []
+    foundCols = False
+    if len(goodYindecies) == 0: 
+        for i in range(rows.shape[0]):
+            if foundCols:
+                break
+            # sort each row with y
+            rows[i,:,2] = np.sort(rows[i,:,2])
+            for yindex in range(1,len(rows[i,:,2])):
+                if len(cols)==5:
+                    foundCols = True
+                    break
+                insertCols = False
+                if len(cols) == 0:
+                    insertCols = True
+                for yVal in cols:
+                    insertCols = True
+                    if np.abs(yVal - rows[i,:,2][yindex]) < radius:
+                        # we found similar y before
+                        insertCols = False
+                        break
+                if insertCols:
+                    cols.append(rows[i,:,2][yindex])
+    
+    cols = sorted(cols)
+    #if show_info: print(cols)
+    for i in range(len(needsModificationDueYindex)):
+        if needsModificationDueYindex[i] == 1:
+            if len(goodYindecies) == 0:
+                rows[i,:,2] = cols
+            else:
+                rows[i,:,2] = goodYindecies
+    #print(rows)
+    ###
+    # calculate answers and compare it with model answer:
+    currentAnswer = np.zeros(rows.shape[0],dtype=int)
+    perim_circ= np.pi * radius * 2          
+    for rindex in range(rows.shape[0]):
+        ansNo = 1
+        for r,x,y in rows[rindex]:
+            white_count = count_white(r,x,y,diff)
+            #print(white_count,x,y)
+            if white_count > perim_circ + 25: # 25 scaling issues i.e. saftey margin
+                if currentAnswer[rindex] == 0:
+                    #print('1st ans: at x,y , white_count -> perim_circ ', x ,y , white_count , perim_circ)
+                    currentAnswer[rindex] = ansNo
+                else:
+                    #print('other ans: at x,y ,white_count -> perim_circ ', x ,y , white_count , perim_circ)
+                    currentAnswer[rindex] = -1
+            ansNo += 1
+    return currentAnswer
+
+
+def setExcelHeaders(number_questions):
+    # set Headers:
+    Qs =[]
+    Qs.append("ID")
+    for i in range(number_questions+1):
+        Qs.append('Q'+str(i+1))
+    Qs.append("Grade:")
+    Qs=tuple(Qs)
+    grades = load_workbook('auxiliary data/grades.xlsx')
+    grades_sheet = grades['grades']
+    # clear sheet:
+    grades_sheet.delete_cols(1,number_questions+2)
+    grades_sheet.delete_rows(1, 50)
+    grades_sheet.append(Qs)
+    grades.save('test data/grades.xlsx')
+    
+
+def insertOnExcel(idd, currAnswers, modelAns, grade, showInfo=False):    
+#     currAnswers = currAnswers.tolist()
+#     currAnswers.insert(0,idd)
+#     number_questions = len(currAnswers)-1
+    # excel filling 
+    grades = load_workbook('auxiliary data/grades.xlsx')
+    grades_sheet = grades['grades']
+    std_grades = []
+    std_grades.append(idd)
+    for cInd in range(len(currAnswers)):
+        if currAnswers[cInd] == -1:
+            std_grades.append(-1)
+        elif currAnswers[cInd] == modelAns[cInd]:
+            std_grades.append(1)
+        else:
+            std_grades.append(0)
+    std_grades.append(str(grade*len(currAnswers)) + '/' +str(len(currAnswers)))
+    std_grades= tuple(std_grades)
+    if showInfo: print(std_grades)
+
+    grades_sheet.append(std_grades)
+
+    grades.save('test data/grades.xlsx')
+    #print(grades.active)
+
+
+def getFinalAnswers(img, padAnsSection=False, modelAnswerPath='test/Model_answer.txt', correctPerspective=False, showInfo=False,
+                   bubbles_ref='auxiliary data/bubbles_empty_with_cross.jpeg', rowsCount=10, colCount=2):
+    
+    flag = True
+    if correctPerspective:
+        answers,flag = perspective_correction(img.copy())
+    else:
+        answers = img.copy()
+    
+    if showInfo: show_images([img, answers],['Input image', 'Paper\'s Perspective Corrected'])
+
+    paper_gray = rgb2gray(answers)*255
+    paper_gray_resized = resize(paper_gray,(1600,1286)) # A4 ref size
+    paper_gray_resized = paper_gray_resized.astype("uint8")
+    paper_gray_resized = removeShadowGray(paper_gray_resized)
+    
+    bubbles_w_cross=loadImage(bubbles_ref)
+    out_ref = crop_answers_section(bubbles_w_cross, rowsCount=rowsCount, colCount=colCount)
+    ref_shape = out_ref.shape
+        
+    out_ans = crop_answers_section(paper_gray_resized, pad=padAnsSection, rowsCount=rowsCount, colCount=colCount, refShape=ref_shape)
+        
+    ref_chuncks = []
+    for i in range(colCount):
+        temp = out_ref[:,i*ref_shape[1]//colCount:(i+1)*ref_shape[1]//colCount]
+        thresh = threshold_otsu(temp)
+        temp = temp > thresh
+        ref_chuncks.append(temp)
+
+    out_ans = resize(out_ans,ref_shape) 
+    out_ans = removeShadowGray((out_ans*255).astype("uint8"))
+    if showInfo: show_images([out_ref, out_ans], ['Reference Bubbles', 'Detected and processed Bubbles '])
+    
+    ans_chuncks = []
+    for i in range(colCount):
+        temp = out_ans[:,i*ref_shape[1]//colCount:(i+1)*ref_shape[1]//colCount]
+        temp = resize(temp,ref_chuncks[i].shape)
+        thresh = 240/255
+        temp = temp < thresh #binarization
+        temp = binary_closing(temp, np.ones((7,7), np.uint8)) # closing bubbles to fill
+        ans_chuncks.append(temp)
+    
+    coordinates_chunks = []
+    for ans_chunck in ans_chuncks:
+        coordinates_chunks.append(Hough(ans_chunck))
+        
+    if showInfo: show_Hough(ans_chuncks, coordinates_chunks)
+
+    modelAnwsers = loadModelAnswer(modelAnswerPath)
+
+    chunkAnswers = []
+    for i in range(colCount):
+        chunkAnswers.append(getAnswers(coordinates_chunks[i], ans_chuncks[i], showInfo))
+
+    modelAnwsers = np.array(modelAnwsers)
+    currAnswers = np.concatenate(chunkAnswers)
+
+    if showInfo: print('Model answers:  ', tuple(modelAnwsers))
+    if showInfo: print('Current answers:', tuple(currAnswers))
+    
+    grade = (modelAnwsers == currAnswers)
+    grade = grade.sum() / len(grade)
+    if showInfo: print('Grade: ' + str(grade * len(currAnswers) ) + '/' + str(len(currAnswers)))
+    
+    return flag, modelAnwsers, currAnswers, grade

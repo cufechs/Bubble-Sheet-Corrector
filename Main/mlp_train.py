@@ -123,7 +123,7 @@ def train(n_epochs=30):
             train_loss
             ))
 
-    torch.save(model.state_dict(), 'model_weights.pt')
+    torch.save(model.state_dict(), 'auxiliary data/model_weights.pt')
     return model
 
 
@@ -187,7 +187,7 @@ def detect_digit(img, plot=False):
     
     # Model loading
     model = Net()
-    model.load_state_dict(torch.load('model_weights.pt'))
+    model.load_state_dict(torch.load('auxiliary data/model_weights.pt'))
     model.eval()
     
     transform = transforms.Compose([transforms.ToPILImage(),
